@@ -84,9 +84,63 @@ module RpmSpec =
 
     type Specification = {
         Preamble : Preamble
+        Description : string option
         Prep : Script
         Build : Script
         Install : Script option
         Clean : Script option
         Files : string list
     }
+
+module Builder =
+    open RpmSpec
+
+    let private printGroup (group:Group) =
+        Reflection.FSharpValue.GetUnionFields (group, typeof<Group>)
+        |> function
+        | case, vals when vals.Length > 0 ->
+            sprintf "%s/%O" case.Name vals.[0]
+        | case, _ ->
+            sprintf "%s" case.Name
+
+    let private printPackager (userContact:UserContact) =
+        sprintf "%s <%s>" userContact.Name userContact.Email
+
+    let printPreamble preamble =
+        [
+            yield preamble.Summary |> sprintf "Summary: %s"
+            yield preamble.Name |> sprintf "Name: %s"
+            yield preamble.Version |> sprintf "Version: %f"
+            yield preamble.License |> sprintf "License: %O"
+            yield preamble.Release |> sprintf "Release: %d"
+            yield preamble.Group |> printGroup |> sprintf "Group: %s"
+            yield preamble.Source |> sprintf "Source: %O"
+            yield preamble.URL |> sprintf "URL: %O"
+            if preamble.Distribution.IsSome then
+                yield preamble.Distribution.Value |> sprintf "Distribution: %s"
+            if preamble.Vendor.IsSome then
+                yield preamble.Vendor.Value |> sprintf "Vendor: %s"
+            yield preamble.Packager |> printPackager |> sprintf "Packager: %s"
+        ]
+
+    let printSpec (spec:Specification) =
+        [
+            yield! spec.Preamble |> printPreamble
+            if spec.Description.IsSome then
+                yield! [ "%description"; spec.Description.Value]
+            match spec.Prep with
+            | Script lines ->
+                yield! [""; "%prep"] @ lines
+            match spec.Build with
+            | Script lines ->
+                yield! [""; "%build"] @ lines
+            match spec.Install with
+            | Some (Script lines) ->
+                yield! [""; "%install"] @ lines
+            | None -> ()
+            match spec.Clean with
+            | Some (Script lines) ->
+                yield! [""; "%clean"] @ lines
+            | None -> ()
+            yield! [""; "%files"] @ spec.Files
+        ]
